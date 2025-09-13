@@ -43,19 +43,48 @@ const xorCipher = {
 };
 
 const STORAGE_KEY = "financial-organizer:v1";
+const numClass = (v) => `w-full border rounded px-2 py-1 ${num(v) < 0 ? "border-red-500" : ""}`;
 
-function usePersistentState(initial) {
-  const [state, setState] = useState(() => {
+function useHistoryState(initial) {
+  const [history, setHistory] = useState(() => {
+    let start = ensureDivorceDefaults(initial);
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return ensureDivorceDefaults(initial);
-      return ensureDivorceDefaults(JSON.parse(raw));
-    } catch { return ensureDivorceDefaults(initial); }
+      if (raw) start = ensureDivorceDefaults(JSON.parse(raw));
+    } catch { /* ignore */ }
+    return { past: [], present: start, future: [] };
   });
+
+  const set = (updater) => {
+    setHistory((h) => {
+      const next = typeof updater === "function" ? updater(h.present) : updater;
+      const past = [...h.past, h.present].slice(-10);
+      return { past, present: next, future: [] };
+    });
+  };
+
+  const undo = () => {
+    setHistory((h) => {
+      if (!h.past.length) return h;
+      const past = [...h.past];
+      const previous = past.pop();
+      return { past, present: previous, future: [h.present, ...h.future] };
+    });
+  };
+
+  const redo = () => {
+    setHistory((h) => {
+      if (!h.future.length) return h;
+      const [next, ...future] = h.future;
+      return { past: [...h.past, h.present].slice(-10), present: next, future };
+    });
+  };
+
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
-  return [state, setState];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(history.present));
+  }, [history.present]);
+
+  return [history.present, set, undo, redo];
 }
 
 const US_STATES = [
@@ -102,8 +131,100 @@ const freqToMonthly = (amt, freq) => {
   }
 };
 
+function autoBuildScenarios(base) {
+  const b = { ...base };
+  const scenarios = [];
+
+  scenarios.push({
+    name: "Sell House",
+    keepHouse: false,
+    houseValue: 0,
+    mortgageBalance: 0,
+    mortgagePayment: 0,
+    propertyTaxMonthly: 0,
+    insuranceMonthly: 0,
+    alimony: b.alimony || 0,
+    childSupport: b.childSupport || 0
+  });
+
+  scenarios.push({
+    name: "Refi",
+    keepHouse: true,
+    houseValue: b.houseValue || 0,
+    mortgageBalance: b.mortgageBalance || 0,
+    mortgagePayment: Math.max(0, Math.round((b.mortgagePayment || 0) * 0.85)),
+    propertyTaxMonthly: b.propertyTaxMonthly || 0,
+    insuranceMonthly: b.insuranceMonthly || 0,
+    alimony: b.alimony || 0,
+    childSupport: b.childSupport || 0
+  });
+
+  scenarios.push({
+    name: "Trim 10%",
+    ...b,
+    alimony: b.alimony || 0,
+    childSupport: b.childSupport || 0,
+    _expenseReductionPct: 10
+  });
+
+  scenarios.push({
+    name: "Side Income",
+    ...b,
+    alimony: b.alimony || 0,
+    childSupport: b.childSupport || 0,
+    _extraIncomeMo: 300
+  });
+
+  return scenarios;
+}
+
+function useInsights(data, monthlyIncome, monthlyExpenses, cashFlow) {
+  const tips = [];
+  if (cashFlow < 0) {
+    tips.push({ id: "trim10", text: "Cash flow is negative. Try a 10% trim to non-housing expenses.", action: { type: "applyTrim10" }});
+  }
+  const cc = data.liabilities.filter(l => (l.name||"").toLowerCase().includes("card") && num(l.rate) > 15);
+  if (cc.length) {
+    tips.push({ id: "highAPR", text: "High APR credit card detected. Consider consolidating or payoff plan.", action: null });
+  }
+  if (data.scenarios.base.keepHouse && num(data.scenarios.base.mortgagePayment) > monthlyIncome * 0.35) {
+    tips.push({ id: "housingRatio", text: "Mortgage over ~35% of income. Explore refinance or sell scenario.", action: { type: "applyRefi" }});
+  }
+  return tips;
+}
+
+function computeDivorceDeadlines(filingISO, contested, hasKids) {
+  const base = filingISO ? new Date(filingISO) : new Date();
+  const addDays = (n) => new Date(base.getTime() + n*24*60*60*1000).toISOString().slice(0,10);
+  const items = [
+    { label: "Financial disclosure due", dateISO: addDays(30), done: false },
+    { label: "Initial disclosures exchange", dateISO: addDays(45), done: false },
+    { label: "Parenting plan draft", dateISO: addDays(hasKids ? 20 : 0), done: !hasKids }
+  ];
+  if (contested) items.push({ label: "Mediation/settlement conference", dateISO: addDays(60), done: false });
+  return items;
+}
+
+function defaultDisclosures(hasKids) {
+  const x = [
+    { label: "Income documentation (pay stubs / 1099s)", provided: false },
+    { label: "Tax returns (3 years)", provided: false },
+    { label: "Bank statements (12 months)", provided: false },
+    { label: "Retirement/investment statements (12 months)", provided: false },
+    { label: "Debt statements (12 months)", provided: false }
+  ];
+  if (hasKids) x.push({ label: "Childcare/education expenses", provided: false });
+  return x;
+}
+
+function parseQuickLine(s) {
+  const m = s.trim().match(/^([a-zA-Z ]+)\s+(\d+(?:\.\d+)?)\s+(weekly|biweekly|monthly|annual)$/i);
+  if (!m) return null;
+  return { name: m[1].trim(), amount: Number(m[2]), frequency: m[3].toLowerCase() };
+}
+
 export default function App() {
-  const [data, setData] = usePersistentState(defaultState);
+  const [data, setData, undo, redo] = useHistoryState(defaultState);
   const [tab, setTab] = useState("welcome");
   const [exportPassword, setExportPassword] = useState("");
   const [importPassword, setImportPassword] = useState("");
@@ -153,7 +274,7 @@ export default function App() {
       try {
         const text = reader.result;
         let raw = text;
-        try { raw = xorCipher.dec(text, importPassword); } catch (_err) { raw = text; }
+        try { raw = xorCipher.dec(text, importPassword); } catch (err) { void err; raw = text; }
         const obj = JSON.parse(raw);
         setData(obj);
       } catch { alert("Import failed. Check password and file."); }
@@ -273,17 +394,21 @@ export default function App() {
   // --- scenario helpers ---
   const cloneScenarioAsAltA = () => setData(d => ({ ...d, scenarios: { ...d.scenarios, altA: { ...d.scenarios.base, name: "Alt A" } } }));
   const scenarioSummary = (s) => {
-    const inc = monthlyIncome - (num(data.scenarios.base.alimony) + num(data.scenarios.base.childSupport)) + num(s.alimony || 0) + num(s.childSupport || 0);
+    const incBase = monthlyIncome - (num(data.scenarios.base.alimony) + num(data.scenarios.base.childSupport));
+    const incAdj = incBase + num(s.alimony || 0) + num(s.childSupport || 0) + num(s._extraIncomeMo || 0);
     const houseCost = s.keepHouse ? (num(s.mortgagePayment||0) + num(s.propertyTaxMonthly||0) + num(s.insuranceMonthly||0)) : 0;
-    const exp = data.expenses.reduce((a, e) => a + freqToMonthly(e.amount, e.frequency), 0) + houseCost;
-    const flow = inc - exp;
+    const variableExp = data.expenses.reduce((a, e) => a + freqToMonthly(e.amount, e.frequency), 0);
+    const varExpAdj = s._expenseReductionPct ? variableExp * (1 - s._expenseReductionPct/100) : variableExp;
+    const exp = varExpAdj + houseCost;
+    const flow = incAdj - exp;
     const nwBaseAssets = data.assets.reduce((a, b) => a + num(b.value), 0) + (s.keepHouse ? num(s.houseValue||0) - num(s.mortgageBalance||0) : 0);
     const nwDebts = data.liabilities.reduce((a, l) => a + num(l.balance), 0);
-    return { income: inc, expenses: exp, cashFlow: flow, netWorth: nwBaseAssets - nwDebts };
+    return { income: incAdj, expenses: exp, cashFlow: flow, netWorth: nwBaseAssets - nwDebts };
   };
 
   const alt = scenarioSummary(data.scenarios.altA);
   const cur = scenarioSummary(data.scenarios.base);
+  const tips = useInsights(data, monthlyIncome, monthlyExpenses, cashFlow);
 
   // --- UI ---
   const TabBtn = ({ id, label }) => (
@@ -300,6 +425,8 @@ export default function App() {
             <p className="text-xs text-gray-500">Private, browser-based organizer. Not legal advice.</p>
           </div>
           <div className="flex items-center gap-2">
+            <button onClick={undo} className="px-3 py-2 text-sm border rounded">Undo</button>
+            <button onClick={redo} className="px-3 py-2 text-sm border rounded">Redo</button>
             <input placeholder="Export password (optional)" className="w-56 border rounded px-3 py-2 text-sm" type="password" value={exportPassword} onChange={e=>setExportPassword(e.target.value)} />
             <button onClick={exportJSON} className="px-3 py-2 text-sm border rounded">Export</button>
             <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={(e)=>{ if(e.target.files?.[0]) importJSON(e.target.files[0]); e.target.value = ""; }} />
@@ -318,6 +445,12 @@ export default function App() {
           <TabBtn id="scenarios" label="Scenarios" />          <TabBtn id="divorce" label="Divorce" />
 
         </div>
+
+        {monthlyExpenses > monthlyIncome && (
+          <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">
+            Warning: monthly expenses exceed income.
+          </div>
+        )}
 
         {tab === "welcome" && (
           <section className="bg-white border rounded-xl p-6 space-y-4">
@@ -377,7 +510,7 @@ export default function App() {
               render={(r)=> (
                 <>
                   <Cell><input className="w-full border rounded px-2 py-1" placeholder="e.g., Primary residence" value={r.name||""} onChange={e=>updateRow("assets",r.id,{name:e.target.value})}/></Cell>
-                  <Cell><input type="number" className="w-full border rounded px-2 py-1" value={r.value||0} onChange={e=>updateRow("assets",r.id,{value:Number(e.target.value)})}/></Cell>
+                  <Cell><input type="number" className={numClass(r.value||0)} value={r.value||0} onChange={e=>updateRow("assets",r.id,{value:Number(e.target.value)})}/></Cell>
                   <Cell><input className="w-full border rounded px-2 py-1" value={r.notes||""} onChange={e=>updateRow("assets",r.id,{notes:e.target.value})}/></Cell>
                 </>
               )}
@@ -392,9 +525,9 @@ export default function App() {
               render={(r)=> (
                 <>
                   <Cell><input className="w-full border rounded px-2 py-1" placeholder="e.g., Home mortgage" value={r.name||""} onChange={e=>updateRow("liabilities",r.id,{name:e.target.value})}/></Cell>
-                  <Cell><input type="number" className="w-full border rounded px-2 py-1" value={r.balance||0} onChange={e=>updateRow("liabilities",r.id,{balance:Number(e.target.value)})}/></Cell>
-                  <Cell><input type="number" className="w-full border rounded px-2 py-1" value={r.rate||0} onChange={e=>updateRow("liabilities",r.id,{rate:Number(e.target.value)})}/></Cell>
-                  <Cell><input type="number" className="w-full border rounded px-2 py-1" value={r.payment||0} onChange={e=>updateRow("liabilities",r.id,{payment:Number(e.target.value)})}/></Cell>
+                  <Cell><input type="number" className={numClass(r.balance||0)} value={r.balance||0} onChange={e=>updateRow("liabilities",r.id,{balance:Number(e.target.value)})}/></Cell>
+                  <Cell><input type="number" className={numClass(r.rate||0)} value={r.rate||0} onChange={e=>updateRow("liabilities",r.id,{rate:Number(e.target.value)})}/></Cell>
+                  <Cell><input type="number" className={numClass(r.payment||0)} value={r.payment||0} onChange={e=>updateRow("liabilities",r.id,{payment:Number(e.target.value)})}/></Cell>
                   <Cell><input className="w-full border rounded px-2 py-1" value={r.notes||""} onChange={e=>updateRow("liabilities",r.id,{notes:e.target.value})}/></Cell>
                 </>
               )}
@@ -409,7 +542,7 @@ export default function App() {
               render={(r)=> (
                 <>
                   <Cell><input className="w-full border rounded px-2 py-1" placeholder="e.g., Salary" value={r.source||""} onChange={e=>updateRow("income",r.id,{source:e.target.value})}/></Cell>
-                  <Cell><input type="number" className="w-full border rounded px-2 py-1" value={r.amount||0} onChange={e=>updateRow("income",r.id,{amount:Number(e.target.value)})}/></Cell>
+                  <Cell><input type="number" className={numClass(r.amount||0)} value={r.amount||0} onChange={e=>updateRow("income",r.id,{amount:Number(e.target.value)})}/></Cell>
                   <Cell>
                     <select className="w-full border rounded px-2 py-1" value={r.frequency||"monthly"} onChange={e=>updateRow("income",r.id,{frequency:e.target.value})}>
                       {['weekly','biweekly','monthly','annual'].map(f=> <option key={f} value={f}>{f}</option>)}
@@ -420,6 +553,15 @@ export default function App() {
               onAdd={()=>addRow("income",{source:"", amount:0, frequency:"monthly"})}
               onRemove={(id)=>removeRow("income",id)}
             />
+            <div className="flex gap-2 mt-2">
+              <input id="quick-add-inc" className="border rounded px-2 py-1 text-sm" placeholder="e.g., freelance 600 biweekly" />
+              <button className="px-3 py-2 border rounded" onClick={()=>{
+                const v = document.getElementById('quick-add-inc').value;
+                const parsed = parseQuickLine(v||"");
+                if (parsed) { addRow("income", { source: parsed.name, amount: parsed.amount, frequency: parsed.frequency }); }
+                document.getElementById('quick-add-inc').value = "";
+              }}>Quick Add</button>
+            </div>
 
             <EditTable
               title="Expenses (What you spend)"
@@ -428,7 +570,7 @@ export default function App() {
               render={(r)=> (
                 <>
                   <Cell><input className="w-full border rounded px-2 py-1" placeholder="e.g., Rent, Utilities" value={r.name||""} onChange={e=>updateRow("expenses",r.id,{name:e.target.value})}/></Cell>
-                  <Cell><input type="number" className="w-full border rounded px-2 py-1" value={r.amount||0} onChange={e=>updateRow("expenses",r.id,{amount:Number(e.target.value)})}/></Cell>
+                  <Cell><input type="number" className={numClass(r.amount||0)} value={r.amount||0} onChange={e=>updateRow("expenses",r.id,{amount:Number(e.target.value)})}/></Cell>
                   <Cell>
                     <select className="w-full border rounded px-2 py-1" value={r.frequency||"monthly"} onChange={e=>updateRow("expenses",r.id,{frequency:e.target.value})}>
                       {['weekly','biweekly','monthly','annual'].map(f=> <option key={f} value={f}>{f}</option>)}
@@ -439,6 +581,15 @@ export default function App() {
               onAdd={()=>addRow("expenses",{name:"", amount:0, frequency:"monthly"})}
               onRemove={(id)=>removeRow("expenses",id)}
             />
+            <div className="flex gap-2 mt-2">
+              <input id="quick-add-exp" className="border rounded px-2 py-1 text-sm" placeholder="e.g., rent 1200 monthly" />
+              <button className="px-3 py-2 border rounded" onClick={()=>{
+                const v = document.getElementById('quick-add-exp').value;
+                const parsed = parseQuickLine(v||"");
+                if (parsed) { addRow("expenses", { name: parsed.name, amount: parsed.amount, frequency: parsed.frequency }); }
+                document.getElementById('quick-add-exp').value = "";
+              }}>Quick Add</button>
+            </div>
 
             <Card>
               <h3 className="text-lg font-semibold">Quick Import (CSV)</h3>
@@ -547,9 +698,27 @@ export default function App() {
 
         {tab === "scenarios" && (
           <section className="space-y-4">
+            {tips.length > 0 && (
+              <Card>
+                <div className="p-4 space-y-2">
+                  <h4 className="font-medium">Insights</h4>
+                  {tips.map(t => (
+                    <div key={t.id} className="flex items-center justify-between text-sm">
+                      <span>{t.text}</span>
+                      {t.action?.type === "applyTrim10" && (
+                        <button className="px-2 py-1 border rounded" onClick={() => setData(d => ({ ...d, scenarios: { ...d.scenarios, altA: { ...d.scenarios.altA, _expenseReductionPct: 10 } } }))}>Apply to Alt A</button>
+                      )}
+                      {t.action?.type === "applyRefi" && (
+                        <button className="px-2 py-1 border rounded" onClick={() => setData(d => ({ ...d, scenarios: { ...d.scenarios, altA: { ...d.scenarios.base, name: "Refi", mortgagePayment: Math.round((d.scenarios.base.mortgagePayment||0)*0.85) } } }))}>Create Refi Alt</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
             <div className="grid md:grid-cols-2 gap-4">
               <ScenarioCard title="Current" s={data.scenarios.base} onChange={(patch)=>setData(d=>({...d, scenarios:{...d.scenarios, base:{...d.scenarios.base, ...patch}}}))} summary={cur} />
-              <ScenarioCard title={data.scenarios.altA.name} s={data.scenarios.altA} onChange={(patch)=>setData(d=>({...d, scenarios:{...d.scenarios, altA:{...d.scenarios.altA, ...patch}}}))} summary={alt} tools={<button className="px-3 py-2 border rounded" onClick={cloneScenarioAsAltA}>Clone from Current</button>} />
+              <ScenarioCard title={data.scenarios.altA.name} s={data.scenarios.altA} onChange={(patch)=>setData(d=>({...d, scenarios:{...d.scenarios, altA:{...d.scenarios.altA, ...patch}}}))} summary={alt} tools={<><button className="px-3 py-2 border rounded" onClick={cloneScenarioAsAltA}>Clone from Current</button><button className="px-3 py-2 border rounded" onClick={()=>{const alts = autoBuildScenarios(data.scenarios.base); setData(d=>({ ...d, scenarios:{...d.scenarios, altA:{...d.scenarios.altA, ...alts[0]}}}));}}>Build Suggestions</button></>} />
             </div>
             <Card>
               <div className="p-4 grid md:grid-cols-2 gap-3 text-sm">
@@ -578,12 +747,27 @@ export default function App() {
           </section>
         )}
 
-                {tab === "divorce" && (
+        {tab === "divorce" && (
           <section className="bg-white border rounded-xl p-6 space-y-4">
             <DivorceTab
               data={data.divorce}
               setDivorce={(next) => setData(d => ({ ...d, divorce: next }))}
             />
+            <div className="flex gap-2">
+              <button className="px-3 py-2 border rounded" onClick={()=>{
+                const filingISO = (data.divorce?.support?.startDateISO) || new Date().toISOString().slice(0,10);
+                const hasKids = typeof data.divorce?.children === "number" && data.divorce.children > 0;
+                const contested = (data.divorce?.caseType || "").toLowerCase().includes("contested");
+                const deadlines = computeDivorceDeadlines(filingISO, contested, hasKids);
+                setData(d => ({ ...d, divorce: { ...(d.divorce||{}), deadlines }}));
+              }}>Build Deadlines</button>
+
+              <button className="px-3 py-2 border rounded" onClick={()=>{
+                const hasKids = typeof data.divorce?.children === "number" && data.divorce.children > 0;
+                const disclosures = defaultDisclosures(hasKids);
+                setData(d => ({ ...d, divorce: { ...(d.divorce||{}), disclosures }}));
+              }}>Build Disclosures</button>
+            </div>
           </section>
         )}
 {tab === "settings" && (
@@ -651,11 +835,11 @@ function ScenarioHouseCard({ title, s, onChange }){
               <option value="false">No</option>
             </select>
           </Field>
-          <Field label="House Value"><input type="number" className="w-full border rounded px-2 py-1" value={s.houseValue||0} onChange={(e)=>onChange({houseValue:Number(e.target.value)})}/></Field>
-          <Field label="Mortgage Balance"><input type="number" className="w-full border rounded px-2 py-1" value={s.mortgageBalance||0} onChange={(e)=>onChange({mortgageBalance:Number(e.target.value)})}/></Field>
-          <Field label="Mortgage Payment (mo)"><input type="number" className="w-full border rounded px-2 py-1" value={s.mortgagePayment||0} onChange={(e)=>onChange({mortgagePayment:Number(e.target.value)})}/></Field>
-          <Field label="Property Tax (mo)"><input type="number" className="w-full border rounded px-2 py-1" value={s.propertyTaxMonthly||0} onChange={(e)=>onChange({propertyTaxMonthly:Number(e.target.value)})}/></Field>
-          <Field label="Insurance (mo)"><input type="number" className="w-full border rounded px-2 py-1" value={s.insuranceMonthly||0} onChange={(e)=>onChange({insuranceMonthly:Number(e.target.value)})}/></Field>
+          <Field label="House Value"><input type="number" className={numClass(s.houseValue||0)} value={s.houseValue||0} onChange={(e)=>onChange({houseValue:Number(e.target.value)})}/></Field>
+          <Field label="Mortgage Balance"><input type="number" className={numClass(s.mortgageBalance||0)} value={s.mortgageBalance||0} onChange={(e)=>onChange({mortgageBalance:Number(e.target.value)})}/></Field>
+          <Field label="Mortgage Payment (mo)"><input type="number" className={numClass(s.mortgagePayment||0)} value={s.mortgagePayment||0} onChange={(e)=>onChange({mortgagePayment:Number(e.target.value)})}/></Field>
+          <Field label="Property Tax (mo)"><input type="number" className={numClass(s.propertyTaxMonthly||0)} value={s.propertyTaxMonthly||0} onChange={(e)=>onChange({propertyTaxMonthly:Number(e.target.value)})}/></Field>
+          <Field label="Insurance (mo)"><input type="number" className={numClass(s.insuranceMonthly||0)} value={s.insuranceMonthly||0} onChange={(e)=>onChange({insuranceMonthly:Number(e.target.value)})}/></Field>
         </div>
       </div>
     </Card>
@@ -668,8 +852,14 @@ function ScenarioCard({ title, s, onChange, summary, tools }){
       <div className="p-4 flex items-center justify-between"><h3 className="text-lg font-semibold">{title}</h3><div className="flex gap-2">{tools}</div></div>
       <div className="p-4 grid md:grid-cols-2 gap-3 text-sm">
         <div className="space-y-2">
-          <Field label="Alimony / Spousal Support (monthly)"><input type="number" className="w-full border rounded px-2 py-1" value={s.alimony||0} onChange={(e)=>onChange({alimony:Number(e.target.value)})}/></Field>
-          <Field label="Child Support (monthly)"><input type="number" className="w-full border rounded px-2 py-1" value={s.childSupport||0} onChange={(e)=>onChange({childSupport:Number(e.target.value)})}/></Field>
+          <Field label="Alimony / Spousal Support (monthly)">
+            <input type="range" min="0" max="5000" step="50" value={s.alimony||0} onChange={(e)=>onChange({alimony:Number(e.target.value)})} />
+            <input type="number" className={numClass(s.alimony||0)} value={s.alimony||0} onChange={(e)=>onChange({alimony:Number(e.target.value)})}/>
+          </Field>
+          <Field label="Child Support (monthly)">
+            <input type="range" min="0" max="5000" step="50" value={s.childSupport||0} onChange={(e)=>onChange({childSupport:Number(e.target.value)})} />
+            <input type="number" className={numClass(s.childSupport||0)} value={s.childSupport||0} onChange={(e)=>onChange({childSupport:Number(e.target.value)})}/>
+          </Field>
           <Field label="Keep House?">
             <select className="w-full border rounded px-2 py-1" value={String(!!s.keepHouse)} onChange={(e)=>onChange({keepHouse: e.target.value === 'true'})}>
               <option value="true">Yes</option>
@@ -678,11 +868,11 @@ function ScenarioCard({ title, s, onChange, summary, tools }){
           </Field>
         </div>
         <div className="space-y-2">
-          <Field label="House Value"><input type="number" className="w-full border rounded px-2 py-1" value={s.houseValue||0} onChange={(e)=>onChange({houseValue:Number(e.target.value)})}/></Field>
-          <Field label="Mortgage Balance"><input type="number" className="w-full border rounded px-2 py-1" value={s.mortgageBalance||0} onChange={(e)=>onChange({mortgageBalance:Number(e.target.value)})}/></Field>
-          <Field label="Mortgage Payment (mo)"><input type="number" className="w-full border rounded px-2 py-1" value={s.mortgagePayment||0} onChange={(e)=>onChange({mortgagePayment:Number(e.target.value)})}/></Field>
-          <Field label="Property Tax (mo)"><input type="number" className="w-full border rounded px-2 py-1" value={s.propertyTaxMonthly||0} onChange={(e)=>onChange({propertyTaxMonthly:Number(e.target.value)})}/></Field>
-          <Field label="Insurance (mo)"><input type="number" className="w-full border rounded px-2 py-1" value={s.insuranceMonthly||0} onChange={(e)=>onChange({insuranceMonthly:Number(e.target.value)})}/></Field>
+          <Field label="House Value"><input type="number" className={numClass(s.houseValue||0)} value={s.houseValue||0} onChange={(e)=>onChange({houseValue:Number(e.target.value)})}/></Field>
+          <Field label="Mortgage Balance"><input type="number" className={numClass(s.mortgageBalance||0)} value={s.mortgageBalance||0} onChange={(e)=>onChange({mortgageBalance:Number(e.target.value)})}/></Field>
+          <Field label="Mortgage Payment (mo)"><input type="number" className={numClass(s.mortgagePayment||0)} value={s.mortgagePayment||0} onChange={(e)=>onChange({mortgagePayment:Number(e.target.value)})}/></Field>
+          <Field label="Property Tax (mo)"><input type="number" className={numClass(s.propertyTaxMonthly||0)} value={s.propertyTaxMonthly||0} onChange={(e)=>onChange({propertyTaxMonthly:Number(e.target.value)})}/></Field>
+          <Field label="Insurance (mo)"><input type="number" className={numClass(s.insuranceMonthly||0)} value={s.insuranceMonthly||0} onChange={(e)=>onChange({insuranceMonthly:Number(e.target.value)})}/></Field>
         </div>
       </div>
       <Divider/>
