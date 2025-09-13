@@ -146,16 +146,17 @@ export default function App() {
     a.href = url; a.download = `financial-organizer-${new Date().toISOString().slice(0,10)}.json`;
     a.click(); URL.revokeObjectURL(url);
   };
+
   const importJSON = (file) => {
     const reader = new FileReader();
     reader.onload = () => {
       try {
         const text = reader.result;
         let raw = text;
-        try { raw = xorCipher.dec(text, importPassword); } catch {}
+        try { raw = xorCipher.dec(text, importPassword); } catch (_err) { raw = text; }
         const obj = JSON.parse(raw);
         setData(obj);
-      } catch (e) { alert("Import failed. Check password and file."); }
+      } catch { alert("Import failed. Check password and file."); }
     };
     reader.readAsText(file);
   };
