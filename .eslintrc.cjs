@@ -13,7 +13,9 @@
   settings: { react: { version: "detect" } },
   rules: {
     "react/prop-types": "off",
-    "prettier/prettier": ["error", { endOfLine: "auto" }]
+    "prettier/prettier": ["error", { endOfLine: "auto" }],
+    "no-empty": "off",
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "caughtErrors": "none" }]
   },
-  ignorePatterns: ["dist/", "node_modules/"]
+  ignorePatterns: ["dist/", "node_modules/", "src/App.bak.jsx", "*.bak.*"]
 };

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 set -euo pipefail
 echo "==> Installing deps"
 if [ -f package-lock.json ]; then npm ci; else npm i; fi

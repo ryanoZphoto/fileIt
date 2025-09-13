@@ -6,6 +6,7 @@ import App from "../src/App.jsx";
 describe("App", () => {
   it("renders the header title", () => {
     render(<App />);
-    expect(screen.getByText(/Financial Organizer/i)).toBeInTheDocument();
+    const heading = screen.getByRole("heading", { name: /Financial Organizer/i });
+    expect(heading).toBeInTheDocument();
   });
 });
