@@ -48,9 +48,9 @@ function usePersistentState(initial) {
   const [state, setState] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return ensureDivorceDefaults(initial);
-      return ensureDivorceDefaults(JSON.parse(raw));
-    } catch { return ensureDivorceDefaults(initial); }
+      if (!raw) return initial;
+      return JSON.parse(raw);
+    } catch { return initial; }
   });
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -577,15 +577,7 @@ export default function App() {
           </section>
         )}
 
-                {tab === "divorce" && (
-          <section className="bg-white border rounded-xl p-6 space-y-4">
-            <DivorceTab
-              data={data.divorce}
-              setDivorce={(next) => setData(d => ({ ...d, divorce: next }))}
-            />
-          </section>
-        )}
-{tab === "settings" && (
+        {tab === "settings" && (
           <section className="bg-white border rounded-xl p-4 space-y-4 text-sm">
             <div className="grid md:grid-cols-2 gap-3">
               <Field label="Export password (optional)"><input type="password" className="w-full border rounded px-2 py-1" value={exportPassword} onChange={(e)=>setExportPassword(e.target.value)} placeholder="Set before exporting"/></Field>
@@ -775,6 +767,4 @@ function DangerZone({ setData }) {
      var noteY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? (doc.lastAutoTable.finalY + 8) : (startY3 + 8);
      doc.text("Informational only - not legal advice.", 14, noteY);
    }
-
-
 

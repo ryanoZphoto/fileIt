@@ -1,8 +1,6 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
-import DivorceTab from "./components/DivorceTab.jsx";
-import { ensureDivorceDefaults } from "./lib/divorceDefaults.js";
 
 // --- utils ---
 const currency = (n) => {
@@ -21,7 +19,7 @@ function parseCSV(text) {
       if (inQuotes && text[i + 1] === '"') { cur += '"'; i++; }
       else { inQuotes = !inQuotes; }
     } else if (c === ',' && !inQuotes) { row.push(cur); cur = ""; }
-    else if ((c === '\\n' || c === '\\r') && !inQuotes) { if (cur !== "" || row.length) { row.push(cur); rows.push(row); row = []; cur = ""; } }
+    else if ((c === '\n' || c === '\r') && !inQuotes) { if (cur !== "" || row.length) { row.push(cur); rows.push(row); row = []; cur = ""; } }
     else { cur += c; }
   }
   if (cur !== "" || row.length) { row.push(cur); rows.push(row); }
@@ -48,9 +46,9 @@ function usePersistentState(initial) {
   const [state, setState] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return ensureDivorceDefaults(initial);
-      return ensureDivorceDefaults(JSON.parse(raw));
-    } catch { return ensureDivorceDefaults(initial); }
+      if (!raw) return initial;
+      return JSON.parse(raw);
+    } catch { return initial; }
   });
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -182,92 +180,42 @@ export default function App() {
     setData(d => ({ ...d, [target]: [...d[target], ...mapped] }));
   };
 
-   const generatePDF = () => {
-     const doc = new jsPDF({ unit: "pt", format: "a4" });
-     const title = "Financial Organizer – Report";
-     doc.setFontSize(16);
-     doc.text(title, 40, 40);
+  // --- PDF report ---
+  const generatePDF = () => {
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const title = "Financial Organizer – Report";
+    doc.setFontSize(16); doc.text(title, 40, 40);
+    doc.setFontSize(10);
+    doc.text(`Name: ${data.profile.fullName || ""}`, 40, 60);
+    doc.text(`Email: ${data.profile.email || ""}`, 40, 75);
+    doc.text(`Jurisdiction: ${data.profile.state}`, 40, 90);
 
-     doc.setFontSize(10);
-     doc.text(`Name: ${data.profile.fullName || ""}`, 40, 60);
-     doc.text(`Email: ${data.profile.email || ""}`, 40, 75);
-     doc.text(`Jurisdiction: ${data.profile.state}`, 40, 90);
+    const addTable = (head, rows) => {
+      // @ts-ignore
+      doc.autoTable({ head: [head], body: rows, startY: doc.lastAutoTable ? doc.lastAutoTable.finalY + 20 : 110, styles: { fontSize: 9 } });
+    };
 
-     const addTable = (head, rows) => {
-       // @ts-ignore
-       doc.autoTable({
-         head: [head],
-         body: rows,
-         startY: doc.lastAutoTable ? doc.lastAutoTable.finalY + 20 : 110,
-         styles: { fontSize: 9 },
-         headStyles: { fillColor: [240, 240, 240] }
-       });
-     };
+    addTable(["Checklist Item","Category","Done"], data.checklist.map(i => [i.label, i.cat, i.done ? "Yes" : "No"]));
+    addTable(["Assets","Value","Notes"], data.assets.map(a => [a.name, currency(a.value), a.notes || ""]));
+    addTable(["Liabilities","Balance","Rate","Payment","Notes"], data.liabilities.map(l => [l.name, currency(l.balance), `${num(l.rate)}%`, currency(l.payment), l.notes || ""]));
+    addTable(["Income Source","Amount (Monthly)","Frequency"], data.income.map(r => [r.source, currency(freqToMonthly(r.amount, r.frequency)), r.frequency]));
+    addTable(["Expense","Amount (Monthly)","Frequency"], data.expenses.map(e => [e.name, currency(freqToMonthly(e.amount, e.frequency)), e.frequency]));
 
-     addTable(
-       ["Checklist Item", "Category", "Done"],
-       data.checklist.map(i => [i.label, i.cat, i.done ? "Yes" : "No"])
-     );
+    const y = doc.lastAutoTable ? doc.lastAutoTable.finalY + 30 : 120;
+    doc.setFontSize(12);
+    doc.text("Summary", 40, y);
+    doc.setFontSize(10);
+    doc.text(`Net Worth: ${currency(netWorth)}`, 40, y + 18);
+    doc.text(`Monthly Income: ${currency(monthlyIncome)}`, 40, y + 34);
+    doc.text(`Monthly Expenses: ${currency(monthlyExpenses)}`, 40, y + 50);
+    doc.text(`Monthly Cash Flow: ${currency(cashFlow)}`, 40, y + 66);
 
-     addTable(
-       ["Assets", "Value", "Notes"],
-       data.assets.map(a => [a.name, currency(a.value), a.notes || ""])
-     );
+    const noteY = y + 96;
+    doc.setFontSize(9);
+    doc.text("This report is for informational purposes only and is not legal, tax, or financial advice. Consult a qualified professional for advice.", 40, noteY, { maxWidth: 520 });
 
-     addTable(
-       ["Liabilities", "Balance", "Rate", "Payment", "Notes"],
-       data.liabilities.map(l => [
-         l.name,
-         currency(l.balance),
-         `${num(l.rate)}%`,
-         currency(l.payment),
-         l.notes || ""
-       ])
-     );
-
-     addTable(
-       ["Income Source", "Amount (Monthly)", "Frequency"],
-       data.income.map(r => [
-         r.source,
-         currency(freqToMonthly(r.amount, r.frequency)),
-         r.frequency
-       ])
-     );
-
-     addTable(
-       ["Expense", "Amount (Monthly)", "Frequency"],
-       data.expenses.map(e => [
-         e.name,
-         currency(freqToMonthly(e.amount, e.frequency)),
-         e.frequency
-       ])
-     );
-
-     const y = doc.lastAutoTable ? doc.lastAutoTable.finalY + 30 : 120;
-     doc.setFontSize(12);
-     doc.text("Summary", 40, y);
-     doc.setFontSize(10);
-     doc.text(`Net Worth: ${currency(netWorth)}`, 40, y + 18);
-     doc.text(`Monthly Income: ${currency(monthlyIncome)}`, 40, y + 34);
-     doc.text(`Monthly Expenses: ${currency(monthlyExpenses)}`, 40, y + 50);
-     doc.text(`Monthly Cash Flow: ${currency(cashFlow)}`, 40, y + 66);
-
-     const noteY = y + 96;
-     doc.setFontSize(9);
-     doc.text(
-       "This report is for informational purposes only. Consult a qualified professional for advice.",
-       40,
-       noteY,
-       { maxWidth: 520 }
-     );
-
-     if (typeof pdfAddDivorce === "function") {
-       pdfAddDivorce(doc, data);
-     }
-
-     doc.save(`financial-report-${new Date().toISOString().slice(0, 10)}.pdf`);
-   };
-
+    doc.save(`financial-report-${new Date().toISOString().slice(0,10)}.pdf`);
+  };
 
   // --- scenario helpers ---
   const cloneScenarioAsAltA = () => setData(d => ({ ...d, scenarios: { ...d.scenarios, altA: { ...d.scenarios.base, name: "Alt A" } } }));
@@ -296,7 +244,7 @@ export default function App() {
           <div className="w-9 h-9 rounded-2xl bg-gray-900 text-white grid place-content-center shadow">FO</div>
           <div className="flex-1">
             <h1 className="font-semibold text-xl">Financial Organizer</h1>
-            <p className="text-xs text-gray-500">Private, browser-based organizer. Not legal advice.</p>
+            <p className="text-xs text-gray-500">Private, browser‑based organizer. Not legal advice.</p>
           </div>
           <div className="flex items-center gap-2">
             <input placeholder="Export password (optional)" className="w-56 border rounded px-3 py-2 text-sm" type="password" value={exportPassword} onChange={e=>setExportPassword(e.target.value)} />
@@ -314,8 +262,8 @@ export default function App() {
           <TabBtn id="results" label="Results" />
           <TabBtn id="checklist" label="Checklist" />
           <TabBtn id="finances" label="Detailed" />
-          <TabBtn id="scenarios" label="Scenarios" />          <TabBtn id="divorce" label="Divorce" />
-
+          <TabBtn id="scenarios" label="Scenarios" />
+          <TabBtn id="settings" label="Settings" />
         </div>
 
         {tab === "welcome" && (
@@ -333,7 +281,7 @@ export default function App() {
                 </ul>
               </div>
               <div>
-                <h4 className="font-medium">Quick start (2-3 minutes)</h4>
+                <h4 className="font-medium">Quick start (2–3 minutes)</h4>
                 <ol className="list-decimal ml-5 space-y-1">
                   <li>Use <span className="font-medium">Quick Start</span> to enter all your info</li>
                   <li>Check <span className="font-medium">Results</span> to see your financial summary</li>
@@ -577,15 +525,7 @@ export default function App() {
           </section>
         )}
 
-                {tab === "divorce" && (
-          <section className="bg-white border rounded-xl p-6 space-y-4">
-            <DivorceTab
-              data={data.divorce}
-              setDivorce={(next) => setData(d => ({ ...d, divorce: next }))}
-            />
-          </section>
-        )}
-{tab === "settings" && (
+        {tab === "settings" && (
           <section className="bg-white border rounded-xl p-4 space-y-4 text-sm">
             <div className="grid md:grid-cols-2 gap-3">
               <Field label="Export password (optional)"><input type="password" className="w-full border rounded px-2 py-1" value={exportPassword} onChange={(e)=>setExportPassword(e.target.value)} placeholder="Set before exporting"/></Field>
@@ -707,74 +647,3 @@ function DangerZone({ setData }) {
     </div>
   );
 }
-
-   function pdfAddDivorce(doc, data) {
-     if (!data || !data.divorce) return;
-     var d = data.divorce;
-
-     doc.addPage();
-     doc.setFontSize(16);
-     doc.text("Divorce Summary", 40, 40);
-
-     doc.setFontSize(10);
-     doc.text("Case type: " + (d.caseType || "-"), 40, 60);
-     doc.text("Filing state: " + (d.filingState || "-"), 40, 75);
-     var childCount = (typeof d.children === "number" ? d.children : "-");
-     doc.text("Children: " + childCount, 40, 90);
-
-     var contacts = (d.attorneyContacts || []).map(function (c) {
-       return [c.name || "", c.role || "", c.email || "", c.phone || ""];
-     });
-     if (contacts.length) {
-       // @ts-ignore
-       doc.autoTable({
-         head: [["Name", "Role", "Email", "Phone"]],
-         body: contacts,
-         startY: 110,
-         styles: { fontSize: 9 }
-       });
-     }
-     var startY1 = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? (doc.lastAutoTable.finalY + 8) : 110;
-
-     var deadlines = (d.deadlines || []).map(function (x) {
-       return [x.label || "", x.dateISO || "", x.done ? "Yes" : "No"];
-     });
-     // @ts-ignore
-     doc.autoTable({
-       head: [["Deadline", "Date", "Done"]],
-       body: deadlines,
-       startY: startY1,
-       styles: { fontSize: 9 }
-     });
-     var startY2 = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? (doc.lastAutoTable.finalY + 8) : startY1;
-
-     var disclosures = (d.disclosures || []).map(function (x) {
-       return [x.label || "", x.provided ? "Yes" : "No"];
-     });
-     // @ts-ignore
-     doc.autoTable({
-       head: [["Disclosure", "Provided"]],
-       body: disclosures,
-       startY: startY2,
-       styles: { fontSize: 9 }
-     });
-     var startY3 = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? (doc.lastAutoTable.finalY + 8) : startY2;
-
-     var a = (d.support && typeof d.support.requestedAlimonyMonthly === "number") ? d.support.requestedAlimonyMonthly : 0;
-     var c = (d.support && typeof d.support.requestedChildSupportMonthly === "number") ? d.support.requestedChildSupportMonthly : 0;
-     var s = (d.support && d.support.startDateISO) ? d.support.startDateISO : "-";
-     // @ts-ignore
-     doc.autoTable({
-       head: [["Requested Alimony (mo)", "Requested Child Support (mo)", "Start Date"]],
-       body: [[String(a || 0), String(c || 0), s]],
-       startY: startY3,
-       styles: { fontSize: 9 }
-     });
-
-     doc.setFontSize(8);
-     var noteY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? (doc.lastAutoTable.finalY + 8) : (startY3 + 8);
-     doc.text("Informational only - not legal advice.", 14, noteY);
-   }
-
-
-

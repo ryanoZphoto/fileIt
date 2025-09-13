@@ -48,9 +48,9 @@ function usePersistentState(initial) {
   const [state, setState] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return ensureDivorceDefaults(initial);
-      return ensureDivorceDefaults(JSON.parse(raw));
-    } catch { return ensureDivorceDefaults(initial); }
+      if (!raw) return initial;
+      return JSON.parse(raw);
+    } catch { return initial; }
   });
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -314,8 +314,8 @@ export default function App() {
           <TabBtn id="results" label="Results" />
           <TabBtn id="checklist" label="Checklist" />
           <TabBtn id="finances" label="Detailed" />
-          <TabBtn id="scenarios" label="Scenarios" />          <TabBtn id="divorce" label="Divorce" />
-
+          <TabBtn id="scenarios" label="Scenarios" />
+          <TabBtn id="settings" label="Settings" />
         </div>
 
         {tab === "welcome" && (
@@ -333,7 +333,7 @@ export default function App() {
                 </ul>
               </div>
               <div>
-                <h4 className="font-medium">Quick start (2-3 minutes)</h4>
+                <h4 className="font-medium">Quick start (2â€“3 minutes)</h4>
                 <ol className="list-decimal ml-5 space-y-1">
                   <li>Use <span className="font-medium">Quick Start</span> to enter all your info</li>
                   <li>Check <span className="font-medium">Results</span> to see your financial summary</li>
@@ -577,15 +577,7 @@ export default function App() {
           </section>
         )}
 
-                {tab === "divorce" && (
-          <section className="bg-white border rounded-xl p-6 space-y-4">
-            <DivorceTab
-              data={data.divorce}
-              setDivorce={(next) => setData(d => ({ ...d, divorce: next }))}
-            />
-          </section>
-        )}
-{tab === "settings" && (
+        {tab === "settings" && (
           <section className="bg-white border rounded-xl p-4 space-y-4 text-sm">
             <div className="grid md:grid-cols-2 gap-3">
               <Field label="Export password (optional)"><input type="password" className="w-full border rounded px-2 py-1" value={exportPassword} onChange={(e)=>setExportPassword(e.target.value)} placeholder="Set before exporting"/></Field>
@@ -597,7 +589,7 @@ export default function App() {
         )}
 
         <footer className="py-8 text-xs text-gray-500">
-          <p>© {new Date().getFullYear()} Financial Organizer. This software provides general information only and is not legal, tax, or financial advice. Laws vary by jurisdiction. Consult a qualified professional.</p>
+          <p>Â© {new Date().getFullYear()} Financial Organizer. This software provides general information only and is not legal, tax, or financial advice. Laws vary by jurisdiction. Consult a qualified professional.</p>
         </footer>
       </main>
     </div>
@@ -708,73 +700,121 @@ function DangerZone({ setData }) {
   );
 }
 
+
+divorce_section = """
+        {tab === "divorce" && (
+          <section className="bg-white border rounded-xl p-6 space-y-4">
+            <DivorceTab
+              data={data.divorce}
+              setDivorce={(next) => setData(d => ({ ...d, divorce: next }))}
+              // parseCSV={parseCSV} // uncomment if you want to reuse your CSV parser
+            />
+          </section>
+        )}
+
    function pdfAddDivorce(doc, data) {
-     if (!data || !data.divorce) return;
-     var d = data.divorce;
+      if (!data || !data.divorce) return;
+      var d = data.divorce;
 
-     doc.addPage();
-     doc.setFontSize(16);
-     doc.text("Divorce Summary", 40, 40);
+      doc.addPage();
+      doc.setFontSize(16);
+      doc.text("Divorce Summary", 40, 40);
 
-     doc.setFontSize(10);
-     doc.text("Case type: " + (d.caseType || "-"), 40, 60);
-     doc.text("Filing state: " + (d.filingState || "-"), 40, 75);
-     var childCount = (typeof d.children === "number" ? d.children : "-");
-     doc.text("Children: " + childCount, 40, 90);
+      doc.setFontSize(10);
+      doc.text("Case type: " + (d.caseType || "-"), 40, 60);
+      doc.text("Filing state: " + (d.filingState || "-"), 40, 75);
+      var childCount = (typeof d.children === "number" ? d.children : "-");
+      doc.text("Children: " + childCount, 40, 90);
 
-     var contacts = (d.attorneyContacts || []).map(function (c) {
-       return [c.name || "", c.role || "", c.email || "", c.phone || ""];
-     });
-     if (contacts.length) {
-       // @ts-ignore
-       doc.autoTable({
-         head: [["Name", "Role", "Email", "Phone"]],
-         body: contacts,
-         startY: 110,
+      // Contacts
+      var contacts = (d.attorneyContacts || []).map(function (c) {
+         return [c.name || "", c.role || "", c.email || "", c.phone || ""];
+      });
+      if (contacts.length) {
+         // @ts-ignore
+         doc.autoTable({
+            head: [["Name", "Role", "Email", "Phone"]],
+            body: contacts,
+            startY: 110,
+            styles: { fontSize: 9 }
+         });
+      }
+      var startY1 = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? (doc.lastAutoTable.finalY + 8) : 110;
+
+      // Deadlines
+      var deadlines = (d.deadlines || []).map(function (x) {
+         return [x.label || "", x.dateISO || "", x.done ? "Yes" : "No"];
+      });
+      // @ts-ignore
+      doc.autoTable({
+         head: [["Deadline", "Date", "Done"]],
+         body: deadlines,
+         startY: startY1,
          styles: { fontSize: 9 }
-       });
-     }
-     var startY1 = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? (doc.lastAutoTable.finalY + 8) : 110;
+      });
+      var startY2 = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? (doc.lastAutoTable.finalY + 8) : startY1;
 
-     var deadlines = (d.deadlines || []).map(function (x) {
-       return [x.label || "", x.dateISO || "", x.done ? "Yes" : "No"];
-     });
-     // @ts-ignore
-     doc.autoTable({
-       head: [["Deadline", "Date", "Done"]],
-       body: deadlines,
-       startY: startY1,
-       styles: { fontSize: 9 }
-     });
-     var startY2 = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? (doc.lastAutoTable.finalY + 8) : startY1;
+      // Disclosures
+      var disclosures = (d.disclosures || []).map(function (x) {
+         return [x.label || "", x.provided ? "Yes" : "No"];
+      });
+      // @ts-ignore
+      doc.autoTable({
+         head: [["Disclosure", "Provided"]],
+         body: disclosures,
+         startY: startY2,
+         styles: { fontSize: 9 }
+      });
+      var startY3 = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? (doc.lastAutoTable.finalY + 8) : startY2;
 
-     var disclosures = (d.disclosures || []).map(function (x) {
-       return [x.label || "", x.provided ? "Yes" : "No"];
-     });
-     // @ts-ignore
-     doc.autoTable({
-       head: [["Disclosure", "Provided"]],
-       body: disclosures,
-       startY: startY2,
-       styles: { fontSize: 9 }
-     });
-     var startY3 = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? (doc.lastAutoTable.finalY + 8) : startY2;
+      // Support summary
+      var a = (d.support && typeof d.support.requestedAlimonyMonthly === "number") ? d.support.requestedAlimonyMonthly : 0;
+      var c = (d.support && typeof d.support.requestedChildSupportMonthly === "number") ? d.support.requestedChildSupportMonthly : 0;
+      var s = (d.support && d.support.startDateISO) ? d.support.startDateISO : "-";
+      // @ts-ignore
+      doc.autoTable({
+         head: [["Requested Alimony (mo)", "Requested Child Support (mo)", "Start Date"]],
+         body: [[String(a || 0), String(c || 0), s]],
+         startY: startY3,
+         styles: { fontSize: 9 }
+      });
 
-     var a = (d.support && typeof d.support.requestedAlimonyMonthly === "number") ? d.support.requestedAlimonyMonthly : 0;
-     var c = (d.support && typeof d.support.requestedChildSupportMonthly === "number") ? d.support.requestedChildSupportMonthly : 0;
-     var s = (d.support && d.support.startDateISO) ? d.support.startDateISO : "-";
-     // @ts-ignore
-     doc.autoTable({
-       head: [["Requested Alimony (mo)", "Requested Child Support (mo)", "Start Date"]],
-       body: [[String(a || 0), String(c || 0), s]],
-       startY: startY3,
-       styles: { fontSize: 9 }
-     });
-
-     doc.setFontSize(8);
-     var noteY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? (doc.lastAutoTable.finalY + 8) : (startY3 + 8);
-     doc.text("Informational only - not legal advice.", 14, noteY);
+      doc.setFontSize(8);
+      var noteY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? (doc.lastAutoTable.finalY + 8) : (startY3 + 8);
+      doc.text("Informational only - not legal advice.", 14, noteY);
    }
 
+
+
+
+
+
+out_path = Path("/mnt/data/App.jsx")
+out_path.write_text(src, encoding="utf-8")
+
+ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+copy_path = Path(f"/mnt/data/App.divorce-wired-{ts}.jsx")
+copy_path.write_text(src, encoding="utf-8")
+
+zip_path = Path(f"/mnt/data/App.divorce-wired-{ts}.zip")
+with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+    zf.write(out_path, arcname="App.jsx")
+    zf.write(copy_path, arcname=copy_path.name)
+
+def sha256(p: Path):
+    import hashlib
+    h = hashlib.sha256()
+    with p.open('rb') as f:
+        for chunk in iter(lambda: f.read(8192), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+{
+    "jsx": str(out_path),
+    "jsx_sha256": sha256(out_path),
+    "copy": str(copy_path),
+    "zip": str(zip_path),
+    "zip_sha256": sha256(zip_path)
+}
 
 
