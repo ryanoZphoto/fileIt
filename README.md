@@ -1,12 +1,39 @@
-# React + Vite
+# Financial Organizer
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Private, browser‑based organizer for assets, debts, income, expenses, and a Divorce workflow with disclosures and deadlines. Exports a clean PDF. No server required.
 
-Currently, two official plugins are available:
+## Development
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- `npm install`
+- `npm run dev` to start Vite dev server
+- `npm run build` to build static site
 
-## Expanding the ESLint configuration
+## Build a Windows desktop app (offline)
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Package as a double‑clickable Windows app using Electron.
+
+1) Install dependencies
+
+```
+npm install
+```
+
+2) Build the web app
+
+```
+npm run build
+```
+
+3) Test Electron locally (loads `dist/index.html` offline)
+
+```
+npm run electron:dev
+```
+
+4) Create a Windows executable installer
+
+```
+npm run electron:build
+```
+
+The installer/exe will be produced by electron‑builder under `dist/`. All data is saved locally using browser localStorage inside Electron.

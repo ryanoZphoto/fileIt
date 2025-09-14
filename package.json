@@ -3,9 +3,37 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "electron/main.js",
+  "build": {
+    "appId": "com.yourname.financialorganizer",
+    "productName": "Financial Organizer",
+    "directories": {
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false
+    }
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "electron:dev": "npm run build && electron .",
+    "electron:build": "npm run build && electron-builder -w --x64",
     "lint": "eslint . --ext .js,.jsx --max-warnings=0",
     "preview": "vite preview",
     "format": "prettier --write .",
@@ -21,6 +49,8 @@
     "react-dom": "^19.1.1"
   },
   "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^24.13.3",
     "@eslint/js": "^9.33.0",
     "@tailwindcss/postcss": "^4.1.13",
     "@tailwindcss/vite": "^4.1.13",
