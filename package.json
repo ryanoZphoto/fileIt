@@ -26,7 +26,8 @@
     "nsis": {
       "oneClick": true,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": false
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": "always"
     }
   },
   "scripts": {
@@ -34,6 +35,8 @@
     "build": "vite build",
     "electron:dev": "npm run build && electron .",
     "electron:build": "npm run build && electron-builder -w --x64",
+    "electron:dir": "npm run build && electron-builder -w dir",
+    "electron:portable": "npm run build && electron-builder -w portable",
     "lint": "eslint . --ext .js,.jsx --max-warnings=0",
     "preview": "vite preview",
     "format": "prettier --write .",
