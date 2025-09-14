@@ -46,12 +46,36 @@ const xorCipher = {
 const STORAGE_KEY = "financial-organizer:v1";
 const numClass = (v) => `w-full border rounded px-2 py-1 ${num(v) < 0 ? "border-red-500" : ""}`;
 
+function ensureScenarioDefaults(state) {
+  const next = { ...(state || {}) };
+  const shape = (s, name, defaults = {}) => ({
+    name: (s && typeof s.name === 'string') ? s.name : name,
+    alimony: num(s?.alimony || 0),
+    childSupport: num(s?.childSupport || 0),
+    keepHouse: typeof s?.keepHouse === 'boolean' ? s.keepHouse : (defaults.keepHouse ?? false),
+    houseValue: num(s?.houseValue || 0),
+    mortgageBalance: num(s?.mortgageBalance || 0),
+    mortgagePayment: num(s?.mortgagePayment || 0),
+    propertyTaxMonthly: num(s?.propertyTaxMonthly || 0),
+    insuranceMonthly: num(s?.insuranceMonthly || 0),
+    _expenseReductionPct: num(s?._expenseReductionPct || 0),
+    _extraIncomeMo: num(s?._extraIncomeMo || 0),
+  });
+  next.scenarios = next.scenarios || {};
+  next.scenarios.base = shape(next.scenarios.base, "Current", { keepHouse: true });
+  next.scenarios.altA = shape(next.scenarios.altA, "Alt A");
+  next.scenarios.altB = shape(next.scenarios.altB, "Alt B");
+  next.scenarios.altC = shape(next.scenarios.altC, "Alt C");
+  next.scenarios.altD = shape(next.scenarios.altD, "Alt D");
+  return next;
+}
+
 function useHistoryState(initial) {
   const [history, setHistory] = useState(() => {
-    let start = ensureDivorceDefaults(initial);
+    let start = ensureScenarioDefaults(ensureDivorceDefaults(initial));
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) start = ensureDivorceDefaults(JSON.parse(raw));
+      if (raw) start = ensureScenarioDefaults(ensureDivorceDefaults(JSON.parse(raw)));
     } catch { /* ignore */ }
     return { past: [], present: start, future: [] };
   });
@@ -258,7 +282,7 @@ export default function App() {
         let raw = text;
         try { raw = xorCipher.dec(text, importPassword); } catch (err) { void err; raw = text; }
         const obj = JSON.parse(raw);
-        setData(obj);
+        setData(ensureScenarioDefaults(ensureDivorceDefaults(obj)));
       } catch { alert("Import failed. Check password and file."); }
     };
     reader.readAsText(file);
