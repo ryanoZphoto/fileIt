@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { computeDivorceDeadlines, defaultDisclosures, DIVORCE_GUIDED_STEPS } from "../lib/divorceGuides.js";
 
 const uid = () => Math.random().toString(36).slice(2);
 
@@ -43,6 +44,7 @@ const Card = ({ title, children }) => (
 export default function DivorceTab({ data, setDivorce, parseCSV }) {
   const [csvText, setCsvText] = useState("");
   const parse = parseCSV || parseCSVLocal;
+  const stepIdx = Math.max(0, DIVORCE_GUIDED_STEPS.findIndex(s => s.id === (data.wizardStep || "basics")));
 
   const disclosuresPct = useMemo(() => {
     const total = (data.disclosures?.length || 0);
@@ -58,6 +60,9 @@ export default function DivorceTab({ data, setDivorce, parseCSV }) {
   }, [data.deadlines]);
 
   const update = (patch) => setDivorce({ ...data, ...patch });
+  const setWizardStep = (id) => update({ wizardStep: id });
+  const nextStep = () => setWizardStep(DIVORCE_GUIDED_STEPS[Math.min(DIVORCE_GUIDED_STEPS.length - 1, stepIdx + 1)].id);
+  const prevStep = () => setWizardStep(DIVORCE_GUIDED_STEPS[Math.max(0, stepIdx - 1)].id);
 
   const addContact = () => {
     const list = [...(data.attorneyContacts || []), { id: uid(), name: "", email: "", phone: "", role: "attorney" }];
@@ -105,8 +110,48 @@ export default function DivorceTab({ data, setDivorce, parseCSV }) {
     setCsvText("");
   };
 
+  const buildDeadlines = () => {
+    const filingISO = (data.support?.startDateISO) || new Date().toISOString().slice(0,10);
+    const hasKids = typeof data.children === "number" && data.children > 0;
+    const contested = (data.caseType || "").toLowerCase().includes("contested");
+    const deadlines = computeDivorceDeadlines(filingISO, contested, hasKids).map(d => ({ id: uid(), ...d }));
+    update({ deadlines });
+  };
+
+  const buildDisclosures = () => {
+    const hasKids = typeof data.children === "number" && data.children > 0;
+    const disclosures = defaultDisclosures(hasKids).map(d => ({ id: uid(), ...d }));
+    update({ disclosures });
+  };
+
   return (
     <div className="grid gap-4 md:grid-cols-2">
+      {/* Guided Flow */}
+      <Card title="Guided Steps">
+        <div className="mb-3 text-sm text-gray-700">Follow these steps to create disclosures and related deadlines in order.</div>
+        <ol className="list-decimal ml-5 space-y-2 text-sm">
+          {DIVORCE_GUIDED_STEPS.map((s, i) => (
+            <li key={s.id} className={`${i===stepIdx?"font-medium":""}`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div>{s.title}</div>
+                  <div className="text-xs text-gray-500">{s.description}</div>
+                </div>
+                {s.id === "deadlines" && (
+                  <button className="px-2 py-1 border rounded text-xs" onClick={buildDeadlines}>Auto-Build</button>
+                )}
+                {s.id === "disclosures" && (
+                  <button className="px-2 py-1 border rounded text-xs" onClick={buildDisclosures}>Auto-Build</button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ol>
+        <div className="mt-3 flex gap-2">
+          <button className="px-3 py-1 border rounded" onClick={prevStep} disabled={stepIdx===0}>Prev</button>
+          <button className="px-3 py-1 border rounded" onClick={nextStep} disabled={stepIdx===DIVORCE_GUIDED_STEPS.length-1}>Next</button>
+        </div>
+      </Card>
       {/* Case & Contacts */}
       <Card title="Case & Contacts">
         {/* Case fields */}

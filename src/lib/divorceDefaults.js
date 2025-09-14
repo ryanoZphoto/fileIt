@@ -5,7 +5,8 @@ export const divorceDefaults = (profileState) => ({
   attorneyContacts: [],
   deadlines: [],
   disclosures: [],
-  support: {}
+  support: {},
+  wizardStep: "basics"
 });
 
 export function ensureDivorceDefaults(state) {

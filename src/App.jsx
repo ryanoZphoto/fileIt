@@ -3,6 +3,7 @@ import jsPDF from "jspdf";
 import "jspdf-autotable";
 import DivorceTab from "./components/DivorceTab.jsx";
 import { ensureDivorceDefaults } from "./lib/divorceDefaults.js";
+import { computeDivorceDeadlines, defaultDisclosures } from "./lib/divorceGuides.js";
 
 // --- utils ---
 const currency = (n) => {
@@ -193,29 +194,7 @@ function useInsights(data, monthlyIncome, monthlyExpenses, cashFlow) {
   return tips;
 }
 
-function computeDivorceDeadlines(filingISO, contested, hasKids) {
-  const base = filingISO ? new Date(filingISO) : new Date();
-  const addDays = (n) => new Date(base.getTime() + n*24*60*60*1000).toISOString().slice(0,10);
-  const items = [
-    { label: "Financial disclosure due", dateISO: addDays(30), done: false },
-    { label: "Initial disclosures exchange", dateISO: addDays(45), done: false },
-    { label: "Parenting plan draft", dateISO: addDays(hasKids ? 20 : 0), done: !hasKids }
-  ];
-  if (contested) items.push({ label: "Mediation/settlement conference", dateISO: addDays(60), done: false });
-  return items;
-}
-
-function defaultDisclosures(hasKids) {
-  const x = [
-    { label: "Income documentation (pay stubs / 1099s)", provided: false },
-    { label: "Tax returns (3 years)", provided: false },
-    { label: "Bank statements (12 months)", provided: false },
-    { label: "Retirement/investment statements (12 months)", provided: false },
-    { label: "Debt statements (12 months)", provided: false }
-  ];
-  if (hasKids) x.push({ label: "Childcare/education expenses", provided: false });
-  return x;
-}
+// moved to lib/divorceGuides.js
 
 function parseQuickLine(s) {
   const m = s.trim().match(/^([a-zA-Z ]+)\s+(\d+(?:\.\d+)?)\s+(weekly|biweekly|monthly|annual)$/i);
