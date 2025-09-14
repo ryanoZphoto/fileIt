@@ -1,26 +1,33 @@
 // Shared helpers for divorce workflows: deadlines, disclosures, and guided steps
 
-export function computeDivorceDeadlines(filingISO, contested, hasKids) {
+export function computeDivorceDeadlines(filingISO, contested, hasKids, rules) {
   const base = filingISO ? new Date(filingISO) : new Date();
   const addDays = (n) => new Date(base.getTime() + n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const r = {
+    financialDisclosureDays: 30,
+    initialExchangeDays: 45,
+    parentingPlanDays: 20,
+    mediationDays: 60,
+    ...(rules || {})
+  };
   const items = [
-    { label: "Financial disclosure due", dateISO: addDays(30), done: false },
-    { label: "Initial disclosures exchange", dateISO: addDays(45), done: false },
-    { label: "Parenting plan draft", dateISO: addDays(hasKids ? 20 : 0), done: !hasKids }
+    { label: "Financial disclosure due", dateISO: addDays(r.financialDisclosureDays), done: false },
+    { label: "Initial disclosures exchange", dateISO: addDays(r.initialExchangeDays), done: false },
+    { label: "Parenting plan draft", dateISO: addDays(hasKids ? r.parentingPlanDays : 0), done: !hasKids }
   ];
-  if (contested) items.push({ label: "Mediation/settlement conference", dateISO: addDays(60), done: false });
+  if (contested) items.push({ label: "Mediation/settlement conference", dateISO: addDays(r.mediationDays), done: false });
   return items;
 }
 
 export function defaultDisclosures(hasKids) {
   const x = [
-    { label: "Income documentation (pay stubs / 1099s)", provided: false },
-    { label: "Tax returns (3 years)", provided: false },
-    { label: "Bank statements (12 months)", provided: false },
-    { label: "Retirement/investment statements (12 months)", provided: false },
-    { label: "Debt statements (12 months)", provided: false }
+    { label: "Income documentation (pay stubs / 1099s)", provided: false, notes: "" },
+    { label: "Tax returns (3 years)", provided: false, notes: "" },
+    { label: "Bank statements (12 months)", provided: false, notes: "" },
+    { label: "Retirement/investment statements (12 months)", provided: false, notes: "" },
+    { label: "Debt statements (12 months)", provided: false, notes: "" }
   ];
-  if (hasKids) x.push({ label: "Childcare/education expenses", provided: false });
+  if (hasKids) x.push({ label: "Childcare/education expenses", provided: false, notes: "" });
   return x;
 }
 
