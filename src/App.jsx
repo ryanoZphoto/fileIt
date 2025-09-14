@@ -118,6 +118,9 @@ const defaultState = {
   scenarios: {
     base: { name: "Current", alimony: 0, childSupport: 0, keepHouse: true, houseValue: 0, mortgageBalance: 0, mortgagePayment: 0, propertyTaxMonthly: 0, insuranceMonthly: 0 },
     altA: { name: "Alt A", alimony: 0, childSupport: 0, keepHouse: false },
+    altB: { name: "Alt B", alimony: 0, childSupport: 0, keepHouse: false },
+    altC: { name: "Alt C", alimony: 0, childSupport: 0, keepHouse: false },
+    altD: { name: "Alt D", alimony: 0, childSupport: 0, keepHouse: false },
   },
   notes: "",
 };
@@ -392,7 +395,20 @@ export default function App() {
 
 
   // --- scenario helpers ---
-  const cloneScenarioAsAltA = () => setData(d => ({ ...d, scenarios: { ...d.scenarios, altA: { ...d.scenarios.base, name: "Alt A" } } }));
+  const cloneScenario = (key) => setData(d => ({ ...d, scenarios: { ...d.scenarios, [key]: { ...d.scenarios.base, name: d.scenarios[key].name } } }));
+  const buildScenarioSuggestions = () => {
+    const alts = autoBuildScenarios(data.scenarios.base);
+    setData(d => ({
+      ...d,
+      scenarios: {
+        ...d.scenarios,
+        altA: { ...d.scenarios.altA, ...(alts[0] || {}) },
+        altB: { ...d.scenarios.altB, ...(alts[1] || {}) },
+        altC: { ...d.scenarios.altC, ...(alts[2] || {}) },
+        altD: { ...d.scenarios.altD, ...(alts[3] || {}) },
+      }
+    }));
+  };
   const scenarioSummary = (s) => {
     const incBase = monthlyIncome - (num(data.scenarios.base.alimony) + num(data.scenarios.base.childSupport));
     const incAdj = incBase + num(s.alimony || 0) + num(s.childSupport || 0) + num(s._extraIncomeMo || 0);
@@ -406,8 +422,7 @@ export default function App() {
     return { income: incAdj, expenses: exp, cashFlow: flow, netWorth: nwBaseAssets - nwDebts };
   };
 
-  const alt = scenarioSummary(data.scenarios.altA);
-  const cur = scenarioSummary(data.scenarios.base);
+  const summaries = Object.fromEntries(Object.entries(data.scenarios).map(([k, v]) => [k, scenarioSummary(v)]));
   const tips = useInsights(data, monthlyIncome, monthlyExpenses, cashFlow);
 
   // --- UI ---
@@ -717,25 +732,32 @@ export default function App() {
               </Card>
             )}
             <div className="grid md:grid-cols-2 gap-4">
-              <ScenarioCard title="Current" s={data.scenarios.base} onChange={(patch)=>setData(d=>({...d, scenarios:{...d.scenarios, base:{...d.scenarios.base, ...patch}}}))} summary={cur} />
-              <ScenarioCard title={data.scenarios.altA.name} s={data.scenarios.altA} onChange={(patch)=>setData(d=>({...d, scenarios:{...d.scenarios, altA:{...d.scenarios.altA, ...patch}}}))} summary={alt} tools={<><button className="px-3 py-2 border rounded" onClick={cloneScenarioAsAltA}>Clone from Current</button><button className="px-3 py-2 border rounded" onClick={()=>{const alts = autoBuildScenarios(data.scenarios.base); setData(d=>({ ...d, scenarios:{...d.scenarios, altA:{...d.scenarios.altA, ...alts[0]}}}));}}>Build Suggestions</button></>} />
+              <ScenarioCard title="Current" s={data.scenarios.base} onChange={(patch)=>setData(d=>({...d, scenarios:{...d.scenarios, base:{...d.scenarios.base, ...patch}}}))} summary={summaries.base} />
+              {['altA','altB','altC','altD'].map((key, idx) => (
+                <ScenarioCard
+                  key={key}
+                  title={data.scenarios[key].name}
+                  s={data.scenarios[key]}
+                  onChange={(patch)=>setData(d=>({...d, scenarios:{...d.scenarios, [key]:{...d.scenarios[key], ...patch}}}))}
+                  summary={summaries[key]}
+                  tools={<>
+                    <button className="px-3 py-2 border rounded" onClick={() => cloneScenario(key)}>Clone from Current</button>
+                    {idx === 0 && <button className="px-3 py-2 border rounded" onClick={buildScenarioSuggestions}>Build Suggestions</button>}
+                  </>}
+                />
+              ))}
             </div>
             <Card>
-              <div className="p-4 grid md:grid-cols-2 gap-3 text-sm">
-                <div>
-                  <h4 className="font-medium">Current</h4>
-                  <Row k="Net Worth" v={currency(cur.netWorth)} />
-                  <Row k="Monthly Income" v={currency(cur.income)} />
-                  <Row k="Monthly Expenses" v={currency(cur.expenses)} />
-                  <Row k="Cash Flow" v={currency(cur.cashFlow)} color={cur.cashFlow>=0?"text-green-700":"text-red-700"} />
-                </div>
-                <div>
-                  <h4 className="font-medium">{data.scenarios.altA.name}</h4>
-                  <Row k="Net Worth" v={currency(alt.netWorth)} />
-                  <Row k="Monthly Income" v={currency(alt.income)} />
-                  <Row k="Monthly Expenses" v={currency(alt.expenses)} />
-                  <Row k="Cash Flow" v={currency(alt.cashFlow)} color={alt.cashFlow>=0?"text-green-700":"text-red-700"} />
-                </div>
+              <div className="p-4 grid gap-3 text-sm" style={{gridTemplateColumns:`repeat(${Object.keys(summaries).length}, minmax(0,1fr))`}}>
+                {Object.entries(summaries).map(([key, sum]) => (
+                  <div key={key}>
+                    <h4 className="font-medium">{key === 'base' ? 'Current' : data.scenarios[key].name}</h4>
+                    <Row k="Net Worth" v={currency(sum.netWorth)} />
+                    <Row k="Monthly Income" v={currency(sum.income)} />
+                    <Row k="Monthly Expenses" v={currency(sum.expenses)} />
+                    <Row k="Cash Flow" v={currency(sum.cashFlow)} color={sum.cashFlow>=0?"text-green-700":"text-red-700"} />
+                  </div>
+                ))}
               </div>
             </Card>
             <Card>
@@ -852,6 +874,7 @@ function ScenarioCard({ title, s, onChange, summary, tools }){
       <div className="p-4 flex items-center justify-between"><h3 className="text-lg font-semibold">{title}</h3><div className="flex gap-2">{tools}</div></div>
       <div className="p-4 grid md:grid-cols-2 gap-3 text-sm">
         <div className="space-y-2">
+          <Field label="Name"><input type="text" className="w-full border rounded px-2 py-1" value={s.name||""} onChange={(e)=>onChange({name:e.target.value})}/></Field>
           <Field label="Alimony / Spousal Support (monthly)">
             <input type="range" min="0" max="5000" step="50" value={s.alimony||0} onChange={(e)=>onChange({alimony:Number(e.target.value)})} />
             <input type="number" className={numClass(s.alimony||0)} value={s.alimony||0} onChange={(e)=>onChange({alimony:Number(e.target.value)})}/>
